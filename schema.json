@@ -1,0 +1,24 @@
+{
+  "id": "uuid",
+  "title": "string",
+  "inserted_at": "isodate",
+  "updated_at": "isodate",
+  "mapping": {
+    "n": {
+      "id": "n",
+      "parent": "n",
+      "children": "array",
+      "message": {
+        "model": "string",
+        "inserted_at": "isodate",
+        "fragments": "array"
+      }
+    },
+    "root": {
+      "id": "string",
+      "parent": "null",
+      "children": "array",
+      "message": "null"
+    }
+  }
+}
