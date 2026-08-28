@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>JSON Schema Analyzer - Debug</title>
+    <style>
+        body {
+            font-family: monospace;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            height: 90vh;
+        }
+        .panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .panel-header {
+            padding: 10px 15px;
+            background: #2c3e50;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .panel-body {
+            flex: 1;
+            overflow: auto;
+            padding: 15px;
+        }
+        textarea {
+            width: 100%;
+            height: 100%;
+            border: none;
+            font-family: monospace;
+            font-size: 12px;
+            resize: none;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+        textarea:focus {
+            outline: none;
+        }
+        .output {
+            white-space: pre-wrap;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .controls {
+            padding: 10px 15px;
+            background: #ecf0f1;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            border-top: 1px solid #ddd;
+        }
+        button {
+            padding: 8px 20px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        .status {
+            font-size: 12px;
+            color: #666;
+            margin-left: 10px;
+        }
+        .error {
+            color: #e74c3c;
+            background: #fde8e8;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="panel">
+            <div class="panel-header">📄 Input JSON</div>
+            <div class="panel-body">
+                <textarea id="inputJson" spellcheck="false"></textarea>
+            </div>
+            <div class="controls">
+                <button onclick="analyze()">🔍 Analyze</button>
+                <button onclick="loadSample()">📋 Load Sample</button>
+                <span class="status" id="status">Ready</span>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="panel-header">📊 Output Schema</div>
+            <div class="panel-body">
+                <div id="output" class="output"></div>
+            </div>
+        </div>
+    </div>
+
+<script>
+// ============================================================
+// JSON Schema Analyzer - Full Code
+// ============================================================
+
+function isNumericKey(key) {
+    return !isNaN(parseInt(key)) && parseInt(key).toString() === key;
+}
+
+function isNumericValue(value) {
+    if (typeof value === 'string') {
+        return !isNaN(parseInt(value)) && parseInt(value).toString() === value;
+    }
+    return false;
+}
+
+function isISODate(value) {
+    if (typeof value !== 'string') return false;
+    return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3,6})?([+-]\d{2}:\d{2}|Z)?$/.test(value);
+}
+
+function isUUID(value) {
+    if (typeof value !== 'string') return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function normalizeValue(value) {
+    if (value === null || value === undefined) return;
+    
+    const type = typeof value;
+    if (type === 'string') {
+        if (isISODate(value)) return 'isodate';
+        if (isUUID(value)) return 'uuid';
+        if (isNumericValue(value)) return 'n';
+        return value;
+    }
+    if (type === 'number') return 'number';
+    if (type === 'boolean') return 'boolean';
+    
+    throw new Error(`Unexpected value type in normalizeValue: ${type} (value: ${JSON.stringify(value)})`);
+}
+
+function normalizeArray(arr, path = 'array') {
+    if (arr.length === 0) return [];
+    
+    let merged = normalize(arr[0], `${path}[0]`);
+    
+    for (let i = 1; i < arr.length; i++) {
+        const normalized = normalize(arr[i], `${path}[${i}]`);
+        merged = mergeObjects(merged, normalized, `${path}[${i}]`);
+    }
+    
+    if (Array.isArray(merged)) return merged;
+    return [merged];
+}
+
+function normalize(obj, path = 'root') {
+    if (obj === null || obj === undefined) return;
+    if (typeof obj !== 'object') {
+        const normalized = normalizeValue(obj);
+        const map = new Map();
+        map.set(normalized, 1);
+        return map;
+    }
+    if (Array.isArray(obj)) {
+        return normalizeArray(obj, path);
+    }
+    
+    const result = {};
+    const keys = Object.keys(obj);
+    for (const key of keys) {
+        const normalizedKey = isNumericKey(key) ? 'n' : key;
+        const value = obj[key];
+        const currentPath = path ? `${path}.${key}` : key;
+        
+        let normalizedValue;
+        if (Array.isArray(value)) {
+            normalizedValue = normalizeArray(value, currentPath);
+        } else if (typeof value === 'object' && value !== null) {
+            normalizedValue = normalize(value, currentPath);
+        } else {
+            const normalized = normalizeValue(value);
+            const map = new Map();
+            map.set(normalized, 1);
+            normalizedValue = map;
+        }
+        
+        // If the key already exists in result, merge instead of overwrite
+        if (normalizedKey in result) {
+            result[normalizedKey] = mergeObjects(result[normalizedKey], normalizedValue, currentPath);
+        } else {
+            result[normalizedKey] = normalizedValue;
+        }
+    }
+    return result;
+}
+
+function mergeObjects(obj1, obj2, path = 'root') {
+    // Both are Maps - merge counts
+    if (obj1 instanceof Map && obj2 instanceof Map) {
+        const merged = new Map(obj1);
+        for (const [k, count] of obj2) {
+            merged.set(k, (merged.get(k) || 1) + count);
+        }
+        return merged;
+    }
+    
+    // Both are objects - merge recursively
+    if (typeof obj1 === 'object' && obj1 !== null && !Array.isArray(obj1) && !(obj1 instanceof Map) &&
+        typeof obj2 === 'object' && obj2 !== null && !Array.isArray(obj2) && !(obj2 instanceof Map)) {
+        const result = { ...obj1 };
+        for (const key of Object.keys(obj2)) {
+            const val1 = obj1[key];
+            const val2 = obj2[key];
+            const currentPath = path ? `${path}.${key}` : key;
+            
+            if (val1 === undefined) {
+                result[key] = val2;
+            } else {
+                result[key] = mergeObjects(val1, val2, currentPath);
+            }
+        }
+        return result;
+    }
+    
+    // Both are arrays - merge element by element
+    if (Array.isArray(obj1) && Array.isArray(obj2)) {
+        // If both arrays contain only Maps, merge them specially
+        const allMaps1 = obj1.every(item => item instanceof Map);
+        const allMaps2 = obj2.every(item => item instanceof Map);
+        
+        if (allMaps1 && allMaps2 && obj1.length > 0 && obj2.length > 0) {
+            const merged = new Map();
+            for (const map of obj1) {
+                for (const [k, count] of map) {
+                    merged.set(k, (merged.get(k) || 1) + count);
+                }
+            }
+            for (const map of obj2) {
+                for (const [k, count] of map) {
+                    merged.set(k, (merged.get(k) || 1) + count);
+                }
+            }
+            return [merged];
+        }
+        
+        // If one array is empty and the other has Maps, return the non-empty one
+        if (obj1.length === 0 && obj2.length > 0 && obj2.every(item => item instanceof Map)) {
+            return obj2;
+        }
+        if (obj2.length === 0 && obj1.length > 0 && obj1.every(item => item instanceof Map)) {
+            return obj1;
+        }
+        
+        const maxLen = Math.max(obj1.length, obj2.length);
+        const result = [];
+        for (let i = 0; i < maxLen; i++) {
+            const val1 = i < obj1.length ? obj1[i] : undefined;
+            const val2 = i < obj2.length ? obj2[i] : undefined;
+            
+            if (val1 === undefined) {
+                result.push(val2);
+            } else if (val2 === undefined) {
+                result.push(val1);
+            } else {
+                result.push(mergeObjects(val1, val2, `${path}[${i}]`));
+            }
+        }
+        return result;
+    }
+    
+    // Different types - create a Map with both
+    const map = new Map();
+    map.set(obj1, 1);
+    map.set(obj2, 1);
+    return map;
+}
+
+function stringifyEnums(obj) {
+    if (obj === null || obj === undefined) return obj;
+    if (obj instanceof Map) {
+        const entries = Array.from(obj.entries());
+        
+        let totalCount = 0;
+        for (const [, count] of entries) {
+            totalCount += count;
+        }
+        
+        const enumValues = [];
+        const nonEnumValues = [];
+        
+        for (const [val, count] of entries) {
+            if (typeof val !== 'string') {
+                nonEnumValues.push(val);
+                continue;
+            }
+            
+            const pct = (count / totalCount) * 100;
+            if (pct >= 10) {
+                enumValues.push(val);
+            } else {
+                nonEnumValues.push(val);
+            }
+        }
+        
+        if (enumValues.length >= 2) {
+            return `{${enumValues.join('|')}}`;
+        }
+        if (enumValues.length === 1) {
+            if (nonEnumValues.length > 0) {
+                const allValues = [...enumValues, ...nonEnumValues];
+                const uniqueValues = [...new Set(allValues)];
+                return `{${uniqueValues.join('|')}}`;
+            }
+            return enumValues[0];
+        }
+        
+        if (nonEnumValues.length > 0) {
+            const uniqueValues = [...new Set(nonEnumValues)];
+            const filtered = uniqueValues.filter(v => 
+                v !== 'array' && v !== 'null' && v !== 'number' && v !== 'boolean'
+            );
+            if (filtered.length === 0) {
+                return 'string';
+            }
+            if (filtered.length === 1) {
+                return filtered[0];
+            }
+            if (filtered.length > 10) {
+                return 'string';
+            }
+            return `{${filtered.join('|')}}`;
+        }
+        return 'string';
+    }
+    if (Array.isArray(obj)) {
+        return obj.map(item => stringifyEnums(item));
+    }
+    if (typeof obj === 'object') {
+        const result = {};
+        for (const [key, value] of Object.entries(obj)) {
+            result[key] = stringifyEnums(value);
+        }
+        return result;
+    }
+    return obj;
+}
+
+// ============================================================
+// Sample Data
+// ============================================================
+
+function getSampleData() {
+    // Create a sample with multiple conversations that have different file names
+    const conversations = [];
+    
+    // Conversation 1 - has file fragments
+    const conv1 = {
+        "id": "3f36e079-449b-417b-9ad3-5c8f75617388",
+        "title": "File upload test 1",
+        "inserted_at": "2025-02-03T06:00:27.917000+08:00",
+        "updated_at": "2025-02-03T06:00:42.773000+08:00",
+        "mapping": {
+            "root": {
+                "id": "root",
+                "parent": null,
+                "children": ["1"],
+                "message": null
+            },
+            "1": {
+                "id": "1",
+                "parent": "root",
+                "children": ["2"],
+                "message": {
+                    "model": "deepseek-chat",
+                    "inserted_at": "2025-02-03T06:00:28.185000+08:00",
+                    "fragments": [
+                        {
+                            "type": "FILE",
+                            "files": [
+                                { "file_id": "file1", "file_name": "image.png", "file_size": 12345 },
+                                { "file_id": "file2", "file_name": "document.pdf", "file_size": 67890 }
+                            ]
+                        },
+                        {
+                            "type": "REQUEST",
+                            "content": "Please analyze these files"
+                        }
+                    ]
+                }
+            },
+            "2": {
+                "id": "2",
+                "parent": "1",
+                "children": [],
+                "message": {
+                    "model": "deepseek-chat",
+                    "inserted_at": "2025-02-03T06:00:28.185000+08:00",
+                    "fragments": [
+                        {
+                            "type": "RESPONSE",
+                            "content": "I've analyzed the files"
+                        }
+                    ]
+                }
+            }
+        }
+    };
+    
+    // Conversation 2 - has different file names
+    const conv2 = {
+        "id": "e89a8e12-73ee-4601-8f0f-87c271ac5614",
+        "title": "File upload test 2",
+        "inserted_at": "2026-07-30T23:22:38.206000+08:00",
+        "updated_at": "2026-07-30T23:23:40.078000+08:00",
+        "mapping": {
+            "root": {
+                "id": "root",
+                "parent": null,
+                "children": ["1"],
+                "message": null
+            },
+            "1": {
+                "id": "1",
+                "parent": "root",
+                "children": ["2"],
+                "message": {
+                    "model": "deepseek-chat",
+                    "inserted_at": "2026-07-30T23:23:02.830000+08:00",
+                    "fragments": [
+                        {
+                            "type": "FILE",
+                            "files": [
+                                { "file_id": "file3", "file_name": "report.pdf", "file_size": 11111 },
+                                { "file_id": "file4", "file_name": "data.csv", "file_size": 22222 },
+                                { "file_id": "file5", "file_name": "presentation.pptx", "file_size": 33333 }
+                            ]
+                        },
+                        {
+                            "type": "REQUEST",
+                            "content": "What do these files contain?"
+                        }
+                    ]
+                }
+            },
+            "2": {
+                "id": "2",
+                "parent": "1",
+                "children": [],
+                "message": {
+                    "model": "deepseek-chat",
+                    "inserted_at": "2026-07-30T23:23:02.823000+08:00",
+                    "fragments": [
+                        {
+                            "type": "SEARCH",
+                            "results": [
+                                { "url": "https://example.com", "title": "Example" }
+                            ]
+                        },
+                        {
+                            "type": "RESPONSE",
+                            "content": "The files contain various data"
+                        }
+                    ]
+                }
+            }
+        }
+    };
+    
+    // Conversation 3 - has SEARCH and RESPONSE
+    const conv3 = {
+        "id": "a1b2c3d4-1234-5678-9abc-def012345678",
+        "title": "Search test",
+        "inserted_at": "2026-08-01T10:00:00.000000+08:00",
+        "updated_at": "2026-08-01T10:05:00.000000+08:00",
+        "mapping": {
+            "root": {
+                "id": "root",
+                "parent": null,
+                "children": ["1"],
+                "message": null
+            },
+            "1": {
+                "id": "1",
+                "parent": "root",
+                "children": ["2"],
+                "message": {
+                    "model": "deepseek-chat",
+                    "inserted_at": "2026-08-01T10:00:10.000000+08:00",
+                    "fragments": [
+                        {
+                            "type": "REQUEST",
+                            "content": "Search for AI news"
+                        }
+                    ]
+                }
+            },
+            "2": {
+                "id": "2",
+                "parent": "1",
+                "children": [],
+                "message": {
+                    "model": "deepseek-chat",
+                    "inserted_at": "2026-08-01T10:00:20.000000+08:00",
+                    "fragments": [
+                        {
+                            "type": "SEARCH",
+                            "results": [
+                                { "url": "https://ai-news.com", "title": "AI News Today" },
+                                { "url": "https://tech-blog.com", "title": "Tech Blog Post" }
+                            ]
+                        },
+                        {
+                            "type": "RESPONSE",
+                            "content": "Here are the latest AI news articles"
+                        }
+                    ]
+                }
+            }
+        }
+    };
+    
+    conversations.push(conv1, conv2, conv3);
+    return conversations;
+}
+
+// ============================================================
+// UI Functions
+// ============================================================
+
+function loadSample() {
+    const sample = getSampleData();
+    document.getElementById('inputJson').value = JSON.stringify(sample, null, 2);
+    document.getElementById('status').textContent = '✅ Sample loaded';
+    document.getElementById('output').innerHTML = '';
+}
+
+function analyze() {
+    const input = document.getElementById('inputJson').value;
+    if (!input.trim()) {
+        document.getElementById('output').innerHTML = '<div class="error">Please enter JSON data or load the sample.</div>';
+        return;
+    }
+    
+    try {
+        const data = JSON.parse(input);
+        document.getElementById('status').textContent = '🔄 Analyzing...';
+        
+        const startTime = performance.now();
+        const merged = normalize(data);
+        const elapsed = (performance.now() - startTime).toFixed(2);
+        
+        const output = stringifyEnums(merged);
+        
+        const outputHtml = `<div style="margin-bottom:10px;color:#666;font-size:12px;">⏱️ Completed in ${elapsed}ms</div>
+                           <pre style="margin:0;font-family:monospace;font-size:12px;">${JSON.stringify(output, null, 2)}</pre>`;
+        document.getElementById('output').innerHTML = outputHtml;
+        
+        document.getElementById('status').textContent = `✅ Done (${elapsed}ms)`;
+    } catch (error) {
+        document.getElementById('output').innerHTML = `<div class="error">❌ Error: ${error.message}\n\n${error.stack}</div>`;
+        document.getElementById('status').textContent = '❌ Error';
+    }
+}
+
+// Load sample on page load
+window.onload = function() {
+    loadSample();
+};
+</script>
+</body>
+</html>

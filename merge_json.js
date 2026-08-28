@@ -1,7 +1,7 @@
 const fs = require('fs');
 
 /**
- * Simple JSON structure analyzer - normalize and merge incrementally
+ * Simple JSON structure analyzer - normalize into Maps with counts, then merge
  */
 
 function isNumericKey(key) {
@@ -25,227 +25,228 @@ function isUUID(value) {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
-function isShortString(value) {
-    return typeof value === 'string' && value.length <= 50 && value.length > 0;
-}
-
-function isEnglishLetter(char) {
-    return (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z');
-}
-
-function isAllEnglishLetters(value) {
-    for (const char of value) {
-        if (!isEnglishLetter(char)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-function calculateEnumScore(value) {
-    if (typeof value !== 'string') return 0;
-    if (isISODate(value)) return 0;
-    if (isUUID(value)) return 0;
-    if (isNumericValue(value)) return 0;
-    if (value.length > 50) return 0;
-    if (value.length < 2) return 0;
-    
-    if (!isAllEnglishLetters(value)) {
-        return 0.2;
-    }
-    
-    let score = 0;
-    const isAllCaps = value === value.toUpperCase() && value !== value.toLowerCase();
-    const isCapitalized = value[0] === value[0].toUpperCase() && value.slice(1) === value.slice(1).toLowerCase();
-    const isSingleWord = !value.includes(' ');
-    
-    if (isAllCaps && isSingleWord) score = 1.0;
-    else if (isCapitalized && isSingleWord) score = 0.8;
-    else if (isAllCaps) score = 0.6;
-    else if (isCapitalized) score = 0.4;
-    else score = 0.2;
-    
-    return score;
-}
-
 function normalizeValue(value) {
-    if (value === null || value === undefined) return 'null';
+    if (value === null || value === undefined) return;
     
     const type = typeof value;
     if (type === 'string') {
         if (isISODate(value)) return 'isodate';
         if (isUUID(value)) return 'uuid';
         if (isNumericValue(value)) return 'n';
-        if (isShortString(value)) {
-            const score = calculateEnumScore(value);
-            if (score >= 0.8) {
-                return value;
-            }
-            return 'string';
-        }
-        return 'string';
+        return value;
     }
     if (type === 'number') return 'number';
     if (type === 'boolean') return 'boolean';
-    if (Array.isArray(value)) return 'array';
-    if (type === 'object') return 'object';
-    return type;
+    
+    throw new Error(`Unexpected value type in normalizeValue: ${type} (value: ${JSON.stringify(value)})`);
 }
 
-// Normalize an object - arrays become 'array'
-function normalizeObject(obj) {
-    if (obj === null || obj === undefined) return 'null';
-    if (typeof obj !== 'object') return normalizeValue(obj);
-    if (Array.isArray(obj)) return 'array';
+function normalizeArray(arr, path = 'array') {
+    if (arr.length === 0) return [];
+    
+    let merged = normalize(arr[0], `${path}[0]`);
+    
+    for (let i = 1; i < arr.length; i++) {
+        const normalized = normalize(arr[i], `${path}[${i}]`);
+        merged = mergeObjects(merged, normalized, `${path}[${i}]`);
+    }
+    
+    if (Array.isArray(merged)) return merged;
+    return [merged];
+}
+
+function normalize(obj, path = 'root') {
+    if (obj === null || obj === undefined) return;
+    if (typeof obj !== 'object') {
+        const normalized = normalizeValue(obj);
+        const map = new Map();
+        map.set(normalized, 1);
+        return map;
+    }
+    if (Array.isArray(obj)) {
+        return normalizeArray(obj, path);
+    }
     
     const result = {};
     const keys = Object.keys(obj);
     for (const key of keys) {
         const normalizedKey = isNumericKey(key) ? 'n' : key;
         const value = obj[key];
+        const currentPath = path ? `${path}.${key}` : key;
         
+        let normalizedValue;
         if (Array.isArray(value)) {
-            result[normalizedKey] = 'array';
+            normalizedValue = normalizeArray(value, currentPath);
         } else if (typeof value === 'object' && value !== null) {
-            result[normalizedKey] = normalizeObject(value);
+            normalizedValue = normalize(value, currentPath);
         } else {
-            result[normalizedKey] = normalizeValue(value);
+            const normalized = normalizeValue(value);
+            const map = new Map();
+            map.set(normalized, 1);
+            normalizedValue = map;
+        }
+        
+        // If the key already exists in result, merge instead of overwrite
+        if (normalizedKey in result) {
+            result[normalizedKey] = mergeObjects(result[normalizedKey], normalizedValue, currentPath);
+        } else {
+            result[normalizedKey] = normalizedValue;
         }
     }
     return result;
 }
 
-// Merge two objects - simple key by key merge
-function mergeObjects(obj1, obj2) {
-    const result = {};
-    const allKeys = new Set([...Object.keys(obj1), ...Object.keys(obj2)]);
+function mergeObjects(obj1, obj2, path = 'root') {
+    // Both are Maps - merge counts
+    if (obj1 instanceof Map && obj2 instanceof Map) {
+        const merged = new Map(obj1);
+        for (const [k, count] of obj2) {
+            merged.set(k, (merged.get(k) || 1) + count);
+        }
+        return merged;
+    }
     
-    for (const key of allKeys) {
-        const val1 = obj1[key];
-        const val2 = obj2[key];
-        
-        if (val1 === undefined) {
-            result[key] = val2;
-        } else if (val2 === undefined) {
-            result[key] = val1;
-        } else if (val1 === val2) {
-            result[key] = val1;
-        } else {
-            // Both exist and are different
-            if (typeof val1 === 'object' && val1 !== null &&
-                typeof val2 === 'object' && val2 !== null) {
-                // Both are objects - merge them
-                result[key] = mergeObjects(val1, val2);
-            } else if (typeof val1 === 'string' && typeof val2 === 'string') {
-                // Both strings - create a Set (for enum detection)
-                const set = new Set();
-                set.add(val1);
-                set.add(val2);
-                result[key] = set;
+    // Both are objects - merge recursively
+    if (typeof obj1 === 'object' && obj1 !== null && !Array.isArray(obj1) && !(obj1 instanceof Map) &&
+        typeof obj2 === 'object' && obj2 !== null && !Array.isArray(obj2) && !(obj2 instanceof Map)) {
+        const result = { ...obj1 };
+        for (const key of Object.keys(obj2)) {
+            const val1 = obj1[key];
+            const val2 = obj2[key];
+            const currentPath = path ? `${path}.${key}` : key;
+            
+            if (val1 === undefined) {
+                result[key] = val2;
             } else {
-                // Different types - create a Set
-                const set = new Set();
-                set.add(val1);
-                set.add(val2);
-                result[key] = set;
+                result[key] = mergeObjects(val1, val2, currentPath);
             }
         }
+        return result;
     }
-    return result;
+    
+    // Both are arrays - merge element by element
+    if (Array.isArray(obj1) && Array.isArray(obj2)) {
+        // If both arrays contain only Maps, merge them specially
+        const allMaps1 = obj1.every(item => item instanceof Map);
+        const allMaps2 = obj2.every(item => item instanceof Map);
+        
+        if (allMaps1 && allMaps2 && obj1.length > 0 && obj2.length > 0) {
+            const merged = new Map();
+            for (const map of obj1) {
+                for (const [k, count] of map) {
+                    merged.set(k, (merged.get(k) || 1) + count);
+                }
+            }
+            for (const map of obj2) {
+                for (const [k, count] of map) {
+                    merged.set(k, (merged.get(k) || 1) + count);
+                }
+            }
+            return [merged];
+        }
+        
+        // If one array is empty and the other has Maps, return the non-empty one
+        if (obj1.length === 0 && obj2.length > 0 && obj2.every(item => item instanceof Map)) {
+            return obj2;
+        }
+        if (obj2.length === 0 && obj1.length > 0 && obj1.every(item => item instanceof Map)) {
+            return obj1;
+        }
+        
+        const maxLen = Math.max(obj1.length, obj2.length);
+        const result = [];
+        for (let i = 0; i < maxLen; i++) {
+            const val1 = i < obj1.length ? obj1[i] : undefined;
+            const val2 = i < obj2.length ? obj2[i] : undefined;
+            
+            if (val1 === undefined) {
+                result.push(val2);
+            } else if (val2 === undefined) {
+                result.push(val1);
+            } else {
+                result.push(mergeObjects(val1, val2, `${path}[${i}]`));
+            }
+        }
+        return result;
+    }
+    
+    // Different types - create a Map with both
+    const map = new Map();
+    map.set(obj1, 1);
+    map.set(obj2, 1);
+    return map;
 }
 
-function simplifySchema(schema) {
-    if (schema === null || schema === undefined) return null;
-    if (typeof schema === 'string') return schema;
-    if (typeof schema === 'number') return 'number';
-    if (typeof schema === 'boolean') return 'boolean';
-    if (schema === '...') return '...';
-    if (schema === 'n') return 'n';
-    
-    if (schema instanceof Set) {
-        const values = Array.from(schema);
-        const setSize = values.length;
+function stringifyEnums(obj) {
+    if (obj === null || obj === undefined) return obj;
+    if (obj instanceof Map) {
+        const entries = Array.from(obj.entries());
         
-        if (setSize > 10) {
-            return 'string';
+        let totalCount = 0;
+        for (const [, count] of entries) {
+            totalCount += count;
         }
         
         const enumValues = [];
-        const regularValues = [];
+        const nonEnumValues = [];
         
-        for (const val of values) {
-            if (typeof val === 'string') {
-                if (isISODate(val)) {
-                    regularValues.push('isodate');
-                } else if (isUUID(val)) {
-                    regularValues.push('uuid');
-                } else if (isNumericValue(val)) {
-                    regularValues.push('n');
-                } else {
-                    const score = calculateEnumScore(val);
-                    if (score >= 0.8) {
-                        enumValues.push(val);
-                    } else {
-                        regularValues.push('string');
-                    }
-                }
+        for (const [val, count] of entries) {
+            if (typeof val !== 'string') {
+                nonEnumValues.push(val);
+                continue;
+            }
+            
+            const pct = (count / totalCount) * 100;
+            if (pct >= 10) {
+                enumValues.push(val);
             } else {
-                regularValues.push(val);
+                nonEnumValues.push(val);
             }
         }
         
         if (enumValues.length >= 2) {
             return `{${enumValues.join('|')}}`;
         }
-        
         if (enumValues.length === 1) {
-            const uniqueRegular = [];
-            for (const val of regularValues) {
-                if (!uniqueRegular.includes(val)) {
-                    uniqueRegular.push(val);
-                }
+            if (nonEnumValues.length > 0) {
+                const allValues = [...enumValues, ...nonEnumValues];
+                const uniqueValues = [...new Set(allValues)];
+                return `{${uniqueValues.join('|')}}`;
             }
-            if (uniqueRegular.length === 0 || (uniqueRegular.length === 1 && uniqueRegular[0] === 'string')) {
-                return enumValues[0];
+            return enumValues[0];
+        }
+        
+        if (nonEnumValues.length > 0) {
+            const uniqueValues = [...new Set(nonEnumValues)];
+            const filtered = uniqueValues.filter(v => 
+                v !== 'array' && v !== 'null' && v !== 'number' && v !== 'boolean'
+            );
+            if (filtered.length === 0) {
+                return 'string';
             }
-            return `{${enumValues[0]}|${uniqueRegular.join('|')}}`;
-        }
-        
-        const uniqueValues = [];
-        for (const val of regularValues) {
-            if (!uniqueValues.includes(val)) {
-                uniqueValues.push(val);
+            if (filtered.length === 1) {
+                return filtered[0];
             }
+            if (filtered.length > 10) {
+                return 'string';
+            }
+            return `{${filtered.join('|')}}`;
         }
-        
-        if (uniqueValues.length === 0) {
-            return 'string';
-        }
-        
-        if (uniqueValues.length === 1) {
-            return uniqueValues[0];
-        }
-        
-        const allStrings = uniqueValues.every(v => v === 'string');
-        if (allStrings) {
-            return 'string';
-        }
-        
-        return `{${uniqueValues.join('|')}}`;
+        return 'string';
     }
-    
-    if (typeof schema === 'object') {
+    if (Array.isArray(obj)) {
+        return obj.map(item => stringifyEnums(item));
+    }
+    if (typeof obj === 'object') {
         const result = {};
-        for (const [key, value] of Object.entries(schema)) {
-            result[key] = simplifySchema(value);
+        for (const [key, value] of Object.entries(obj)) {
+            result[key] = stringifyEnums(value);
         }
         return result;
     }
-    
-    return schema;
+    return obj;
 }
 
-// Main execution
 function main() {
     try {
         const inputFile = process.argv[2] || 'c.json';
@@ -268,32 +269,16 @@ function main() {
             process.exit(1);
         }
 
-        console.log('\n🔍 Analyzing structure...');
-        const startTime = Date.now();
+        console.log('\n🔍 Normalizing and merging...');
+        const merged = normalize(data);
+        console.log(`  Merged ${data.length} items total`);
 
-        // Start with first object - normalize it
-        let merged = normalizeObject(data[0]);
-        console.log(`  Started with object 1`);
+        const output = stringifyEnums(merged);
 
-        // Merge with each subsequent object
-        for (let i = 1; i < data.length; i++) {
-            const normalized = normalizeObject(data[i]);
-            merged = mergeObjects(merged, normalized);
-            if (i % 50 === 0) {
-                console.log(`  Merged ${i + 1} objects...`);
-            }
-        }
-        console.log(`  Merged ${data.length} objects total`);
-
-        const simplified = simplifySchema(merged);
-        const elapsed = Date.now() - startTime;
-
-        fs.writeFileSync('schema.json', JSON.stringify(simplified, null, 2));
+        fs.writeFileSync('schema.json', JSON.stringify(output, null, 2));
         console.log('✅ Schema saved to: schema.json');
 
-        console.log(`\n⏱️  Completed in ${elapsed}ms`);
-
-        const schemaStr = JSON.stringify(simplified, null, 2);
+        const schemaStr = JSON.stringify(output, null, 2);
         const lines = schemaStr.split('\n');
         console.log('\n📊 Schema Preview (first 50 lines):');
         console.log(lines.slice(0, 50).join('\n'));
@@ -308,5 +293,4 @@ function main() {
     }
 }
 
-// Run
 main();
