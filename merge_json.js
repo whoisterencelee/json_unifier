@@ -4,6 +4,13 @@ const fs = require('fs');
  * Simple JSON structure analyzer - normalize into Maps with counts, then merge
  */
 
+// Track frequency of ALL string values
+const frequencyMap = new Map();
+let totalItems = 0;
+
+// Minimum occurrences required for a value to be considered an enum
+const MIN_ENUM_OCCURRENCES = 5;
+
 function isNumericKey(key) {
     return !isNaN(parseInt(key)) && parseInt(key).toString() === key;
 }
@@ -25,15 +32,81 @@ function isUUID(value) {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
+function isSingleWord(value) {
+    if (typeof value !== 'string') return false;
+    return /^[a-zA-Z0-9_]+$/.test(value);
+}
+
+function isAllCaps(value) {
+    if (typeof value !== 'string') return false;
+    return value === value.toUpperCase() && value !== value.toLowerCase();
+}
+
+function recordFrequency(value) {
+    if (typeof value !== 'string') return;
+    if (isISODate(value)) return;
+    if (isUUID(value)) return;
+    if (isNumericValue(value)) return;
+    if (value.length > 50) return;
+    if (value.length < 2) return;
+    
+    if (!frequencyMap.has(value)) {
+        frequencyMap.set(value, 0);
+    }
+    frequencyMap.set(value, frequencyMap.get(value) + 1);
+}
+
+function getFrequency(value) {
+    return frequencyMap.get(value) || 0;
+}
+
+function shouldBeEnum(value) {
+    if (typeof value !== 'string') return false;
+    if (isISODate(value)) return false;
+    if (isUUID(value)) return false;
+    if (isNumericValue(value)) return false;
+    if (value.length > 30) return false;
+    if (value.length < 2) return false;
+    
+    const freq = getFrequency(value);
+    
+    // Must appear at least MIN_ENUM_OCCURRENCES times
+    if (freq < MIN_ENUM_OCCURRENCES) {
+        return false;
+    }
+    
+    const isAllCapsWord = isAllCaps(value) && isSingleWord(value);
+    const freqPct = getFrequency(value) / totalItems * 100;
+    
+    // ALL CAPS single words with >= 6 occurrences
+    if (isAllCapsWord) {
+        return true;
+    }
+    
+    // Other values need >= 10% frequency
+    return freqPct >= 10;
+}
+
 function normalizeValue(value) {
     if (value === null || value === undefined) return;
     
     const type = typeof value;
     if (type === 'string') {
+        // Record frequency for all strings
+        recordFrequency(value);
+        
+        // Check special types first
         if (isISODate(value)) return 'isodate';
         if (isUUID(value)) return 'uuid';
         if (isNumericValue(value)) return 'n';
-        return value;
+        
+        // Check if it should be an enum
+        if (shouldBeEnum(value)) {
+            return value;
+        }
+        
+        // Everything else is a string
+        return 'string';
     }
     if (type === 'number') return 'number';
     if (type === 'boolean') return 'boolean';
@@ -86,7 +159,6 @@ function normalize(obj, path = 'root') {
             normalizedValue = map;
         }
         
-        // If the key already exists in result, merge instead of overwrite
         if (normalizedKey in result) {
             result[normalizedKey] = mergeObjects(result[normalizedKey], normalizedValue, currentPath);
         } else {
@@ -97,7 +169,6 @@ function normalize(obj, path = 'root') {
 }
 
 function mergeObjects(obj1, obj2, path = 'root') {
-    // Both are Maps - merge counts
     if (obj1 instanceof Map && obj2 instanceof Map) {
         const merged = new Map(obj1);
         for (const [k, count] of obj2) {
@@ -106,7 +177,6 @@ function mergeObjects(obj1, obj2, path = 'root') {
         return merged;
     }
     
-    // Both are objects - merge recursively
     if (typeof obj1 === 'object' && obj1 !== null && !Array.isArray(obj1) && !(obj1 instanceof Map) &&
         typeof obj2 === 'object' && obj2 !== null && !Array.isArray(obj2) && !(obj2 instanceof Map)) {
         const result = { ...obj1 };
@@ -124,9 +194,7 @@ function mergeObjects(obj1, obj2, path = 'root') {
         return result;
     }
     
-    // Both are arrays - merge element by element
     if (Array.isArray(obj1) && Array.isArray(obj2)) {
-        // If both arrays contain only Maps, merge them specially
         const allMaps1 = obj1.every(item => item instanceof Map);
         const allMaps2 = obj2.every(item => item instanceof Map);
         
@@ -145,7 +213,6 @@ function mergeObjects(obj1, obj2, path = 'root') {
             return [merged];
         }
         
-        // If one array is empty and the other has Maps, return the non-empty one
         if (obj1.length === 0 && obj2.length > 0 && obj2.every(item => item instanceof Map)) {
             return obj2;
         }
@@ -170,7 +237,6 @@ function mergeObjects(obj1, obj2, path = 'root') {
         return result;
     }
     
-    // Different types - create a Map with both
     const map = new Map();
     map.set(obj1, 1);
     map.set(obj2, 1);
@@ -182,11 +248,6 @@ function stringifyEnums(obj) {
     if (obj instanceof Map) {
         const entries = Array.from(obj.entries());
         
-        let totalCount = 0;
-        for (const [, count] of entries) {
-            totalCount += count;
-        }
-        
         const enumValues = [];
         const nonEnumValues = [];
         
@@ -196,8 +257,7 @@ function stringifyEnums(obj) {
                 continue;
             }
             
-            const pct = (count / totalCount) * 100;
-            if (pct >= 10) {
+            if (shouldBeEnum(val)) {
                 enumValues.push(val);
             } else {
                 nonEnumValues.push(val);
@@ -267,6 +327,45 @@ function main() {
         if (!Array.isArray(data) || data.length === 0) {
             console.error('❌ Expected an array with at least one item');
             process.exit(1);
+        }
+
+        totalItems = data.length;
+        console.log(`\n📊 Total items: ${totalItems}`);
+
+        // First pass: collect frequencies
+        console.log('\n📊 Collecting frequencies...');
+        function collectFrequencies(obj) {
+            if (obj === null || obj === undefined) return;
+            if (typeof obj !== 'object') {
+                if (typeof obj === 'string') {
+                    recordFrequency(obj);
+                }
+                return;
+            }
+            if (Array.isArray(obj)) {
+                for (const item of obj) {
+                    collectFrequencies(item);
+                }
+                return;
+            }
+            for (const key of Object.keys(obj)) {
+                collectFrequencies(obj[key]);
+            }
+        }
+        
+        for (const item of data) {
+            collectFrequencies(item);
+        }
+        
+        // Show top frequencies with enum status
+        console.log('\n📊 Values with >= 6 occurrences (enum candidates):');
+        const sorted = Array.from(frequencyMap.entries())
+            .filter(([value, count]) => count >= MIN_ENUM_OCCURRENCES)
+            .sort((a, b) => b[1] - a[1]);
+        for (const [value, count] of sorted) {
+            const pct = ((count / totalItems) * 100).toFixed(1);
+            const isEnum = shouldBeEnum(value) ? '✓' : ' ';
+            console.log(`  ${isEnum} "${value}": ${count} (${pct}%)`);
         }
 
         console.log('\n🔍 Normalizing and merging...');
