@@ -1,0 +1,164 @@
+[
+  {
+    "id": "uuid",
+    "user_id": "uuid",
+    "title": "string",
+    "chat": {
+      "id": "string",
+      "title": "string",
+      "models": [
+        "gemma4:e4b"
+      ],
+      "params": {},
+      "history": {
+        "messages": {
+          "uuid": {
+            "id": "uuid",
+            "parentId": "{|uuid}",
+            "childrenIds": [
+              "uuid"
+            ],
+            "role": "{user|assistant}",
+            "content": "string",
+            "timestamp": "string",
+            "models": [
+              "gemma4:e4b"
+            ],
+            "model": "gemma4:e4b",
+            "modelName": "gemma4:e4b",
+            "modelIdx": "string",
+            "output": [
+              {
+                "type": "{reasoning|message}",
+                "id": "string",
+                "status": "completed",
+                "start_tag": "<think>",
+                "end_tag": "</think>",
+                "attributes": {
+                  "type": "reasoning_content"
+                },
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "string"
+                  }
+                ],
+                "started_at": "string",
+                "ended_at": "string",
+                "duration": "string",
+                "role": "assistant"
+              }
+            ],
+            "usage": {
+              "input_tokens": "string",
+              "output_tokens": "string",
+              "total_tokens": "string",
+              "prompt_tokens": "string",
+              "completion_tokens": "string",
+              "response_token/s": "string",
+              "prompt_token/s": "string",
+              "total_duration": "string",
+              "load_duration": "string",
+              "prompt_eval_count": "string",
+              "prompt_eval_duration": "string",
+              "eval_count": "string",
+              "eval_duration": "string",
+              "approximate_total": "{0h1m8s|0h1m7s|0h1m41s}",
+              "completion_tokens_details": {
+                "reasoning_tokens": "string",
+                "accepted_prediction_tokens": "string",
+                "rejected_prediction_tokens": "string"
+              }
+            },
+            "followUps": [
+              "string"
+            ],
+            "done": "string",
+            "lastSentence": "string"
+          }
+        },
+        "currentId": "uuid"
+      },
+      "messages": [
+        {
+          "id": "uuid",
+          "parentId": "{|uuid}",
+          "childrenIds": [
+            "uuid"
+          ],
+          "role": "{user|assistant}",
+          "content": "string",
+          "timestamp": "string",
+          "models": [
+            "gemma4:e4b"
+          ],
+          "model": "gemma4:e4b",
+          "modelName": "gemma4:e4b",
+          "modelIdx": "string",
+          "output": [
+            {
+              "type": "{reasoning|message}",
+              "id": "string",
+              "status": "completed",
+              "start_tag": "<think>",
+              "end_tag": "</think>",
+              "attributes": {
+                "type": "reasoning_content"
+              },
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "string"
+                }
+              ],
+              "started_at": "string",
+              "ended_at": "string",
+              "duration": "string",
+              "role": "assistant"
+            }
+          ],
+          "usage": {
+            "input_tokens": "string",
+            "output_tokens": "string",
+            "total_tokens": "string",
+            "prompt_tokens": "string",
+            "completion_tokens": "string",
+            "response_token/s": "string",
+            "prompt_token/s": "string",
+            "total_duration": "string",
+            "load_duration": "string",
+            "prompt_eval_count": "string",
+            "prompt_eval_duration": "string",
+            "eval_count": "string",
+            "eval_duration": "string",
+            "approximate_total": "{0h1m8s|0h1m41s|0h1m7s}",
+            "completion_tokens_details": {
+              "reasoning_tokens": "string",
+              "accepted_prediction_tokens": "string",
+              "rejected_prediction_tokens": "string"
+            }
+          },
+          "followUps": [
+            "string"
+          ],
+          "done": "string",
+          "lastSentence": "string"
+        }
+      ],
+      "tags": [],
+      "timestamp": "string",
+      "files": []
+    },
+    "updated_at": "string",
+    "created_at": "string",
+    "archived": "string",
+    "pinned": "string",
+    "meta": {
+      "tags": [
+        "string"
+      ]
+    },
+    "variables": {},
+    "current_message_id": "uuid"
+  }
+]

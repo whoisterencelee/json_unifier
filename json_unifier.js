@@ -46,6 +46,11 @@
         return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
     }
 
+    function isUUIDKey(key) {
+        // Check if key is a valid UUID (for object keys)
+        return isUUID(key);
+    }
+
     function isSingleWord(value) {
         if (typeof value !== 'string') return false;
         return /^[a-zA-Z0-9_]+$/.test(value);
@@ -159,7 +164,16 @@
             const result = {};
             const keys = Object.keys(obj);
             for (const key of keys) {
-                const normalizedKey = isNumericKey(key) ? 'n' : key;
+                // Normalize key: numeric keys -> "n", UUID keys -> "uuid"
+                let normalizedKey;
+                if (isNumericKey(key)) {
+                    normalizedKey = 'n';
+                } else if (isUUIDKey(key)) {
+                    normalizedKey = 'uuid';
+                } else {
+                    normalizedKey = key;
+                }
+                
                 const value = obj[key];
                 const currentPath = path ? `${path}.${key}` : key;
                 

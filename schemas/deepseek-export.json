@@ -1,0 +1,46 @@
+[
+  {
+    "id": "uuid",
+    "title": "string",
+    "inserted_at": "isodate",
+    "updated_at": "isodate",
+    "mapping": {
+      "n": {
+        "id": "n",
+        "parent": "{root|n}",
+        "children": [
+          "n"
+        ],
+        "message": {
+          "model": "{deepseek-chat|deepseek-reasoner}",
+          "inserted_at": "isodate",
+          "fragments": [
+            {
+              "type": "{REQUEST|RESPONSE|FILE|SEARCH|THINK|TOOL_SEARCH|TOOL_OPEN}",
+              "content": "string",
+              "files": [
+                {
+                  "file_id": "uuid",
+                  "file_name": "{image.png|string}",
+                  "file_size": "string"
+                }
+              ],
+              "results": [
+                {
+                  "url": "string",
+                  "title": "{NVIDIA|string}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "root": {
+        "id": "root",
+        "children": [
+          "n"
+        ]
+      }
+    }
+  }
+]
