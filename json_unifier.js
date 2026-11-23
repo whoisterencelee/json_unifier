@@ -18,7 +18,8 @@
     // Configuration
     // ============================================================
     const MIN_ENUM_OCCURRENCES = 6;
-    const MAX_LITERAL_SET = 3;   // > this many distinct bare literals -> "string"
+    const MAX_LITERAL_SET = 3;        // > this many distinct bare literals -> "string"
+    const MAX_ENUM_CARDINALITY = 20;  // > this many distinct values -> not a closed enum
 
     // Field names that are free-form text by convention. If a key matches,
     // its value is forced to 'string' regardless of value shape.
@@ -32,7 +33,12 @@
         'caption', 'headline', 'subject', 'subtitle', 'tagline',
         // chat / docs
         'preview', 'transcript', 'dialogue', 'conversation',
-        'reasoning', 'thought', 'explanation', 'rationale'
+        'reasoning', 'thought', 'explanation', 'rationale',
+        // high-cardinality labels
+        'site_name', 'sitename', 'domain', 'host', 'hostname', 'source', 'publisher',
+        'vendor', 'brand', 'site', 'website', 'origin', 'referrer',
+        'author', 'username', 'display_name', 'full_name',
+        'tag', 'tags', 'keyword', 'keywords'
     ]);
 
     const FILENAME_EXTENSIONS = new Set([
@@ -347,21 +353,11 @@
                     }
                 }
 
-                if (enumValues.length >= 2) {
-                    return `{${enumValues.join('|')}}`;
-                }
-                if (enumValues.length === 1) {
-                    return enumValues[0];
-                }
-
-                // No enums. Resolve type sentinels.
-                // Homogeneous Map -> return that sentinel directly
-                // (number, boolean, null, string, filename, ...).
-                if (typeSentinels.size > 0) {
+                // Pure type-typed Map (number, boolean, string, ...): resolve by type.
+                if (enumValues.length === 0 && literalValues.length === 0) {
                     if (typeSentinels.size === 1) {
                         return typeSentinels.values().next().value;
                     }
-                    // Mixed sentinels: text-like wins over structural.
                     if (typeSentinels.has('string'))   return 'string';
                     if (typeSentinels.has('filename')) return 'filename';
                     if (typeSentinels.has('isodate'))  return 'isodate';
@@ -372,9 +368,19 @@
                     return 'string';
                 }
 
-                // Pure literals (all-caps words, kebab-case tokens, etc.) that
-                // didn't clear MIN_ENUM_OCCURRENCES. Keep the shape only for a
-                // tiny closed set; otherwise it's free text.
+                // High-cardinality field: not a closed enum, treat as string.
+                if (entries.length > MAX_ENUM_CARDINALITY) {
+                    return 'string';
+                }
+
+                if (enumValues.length >= 2) {
+                    return `{${enumValues.join('|')}}`;
+                }
+                if (enumValues.length === 1) {
+                    return enumValues[0];
+                }
+
+                // Literal tail: a tiny closed set stays as {a|b|c}; otherwise string.
                 if (literalValues.length === 0) return 'string';
                 if (literalValues.length === 1) return literalValues[0];
                 if (literalValues.length > MAX_LITERAL_SET) return 'string';
