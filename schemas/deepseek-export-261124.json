@@ -1,0 +1,66 @@
+[
+  {
+    "id": "uuid",
+    "title": "string",
+    "pinned": "boolean",
+    "current_message_id": "number",
+    "inserted_at": "isodate",
+    "updated_at": "isodate",
+    "messages": [
+      {
+        "id": "number",
+        "parent_id": "number",
+        "role": "{USER|ASSISTANT}",
+        "status": "{FINISHED|INCOMPLETE|CONTENT_FILTER}",
+        "thinking_enabled": "boolean",
+        "search_enabled": "boolean",
+        "accumulated_token_usage": "number",
+        "inserted_at": "isodate",
+        "fragments": [
+          {
+            "type": "{FILE|REQUEST|THINK|RESPONSE|CONTENT_RISK|TOOL_SEARCH|TOOL_OPEN|TEMPLATE_RESPONSE|TOOL_FIND|TOOL_IMAGE_SEARCH|TIP}",
+            "files": [
+              {
+                "id": "uuid",
+                "file_name": "filename",
+                "file_size": "number",
+                "token_usage": "number",
+                "inserted_at": "isodate",
+                "export_path": "filename",
+                "is_image": "boolean",
+                "width": "number",
+                "height": "number"
+              }
+            ],
+            "content": "string",
+            "elapsed_secs": "number",
+            "style": "{WARNING|INFO}",
+            "queries": [
+              "string"
+            ],
+            "results": [
+              {
+                "url": "string",
+                "title": "string",
+                "snippet": "string",
+                "published_at": "isodate",
+                "site_icon": "string",
+                "site_name": "string",
+                "signature": "string"
+              }
+            ],
+            "status": "{FINISHED|FAILED|WIP}",
+            "stage_id": "number",
+            "url": "string",
+            "title": "string",
+            "snippet": "string",
+            "site_name": "string",
+            "published_at": "isodate",
+            "site_icon": "string",
+            "pattern": "string"
+          }
+        ]
+      }
+    ]
+  }
+]
